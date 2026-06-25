@@ -1,0 +1,11 @@
+# 唯一依賴：ccxt（內含 ccxt.pro 串流；Telegram 用標準庫 urllib，不需 requests）。
+#
+# 安裝：  pip install -r requirements.txt
+#
+# 為什麼鎖死版本：ccxt 緊跟交易所 API、一週改好幾次。鎖版本能保證你筆電和 VPS
+# 裝出來一模一樣、行為可預期。這個版本已實測對過 Bybit 的 watch_ohlcv/fetch_ohlcv。
+#
+# 想更新時（自己決定時機，更新後請重跑 test_alert.py 確認沒壞）：
+#   pip install -U ccxt
+#   pip freeze | grep -i '^ccxt==' > /tmp/v && cat /tmp/v   # 看新版號，再回填這裡
+ccxt==4.5.59

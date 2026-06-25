@@ -1,0 +1,32 @@
+# systemd 服務檔範本：讓 alert.py 在 VPS 上開機自動啟動、崩潰自動重啟、SSH 斷線也照跑。
+#
+# 安裝步驟（在 VPS 上、root 或 sudo）：
+#   1) 把專案放到 /home/btc/btc-alert（或改下面三處路徑成你的實際路徑）
+#   2) 在該目錄建好 venv 並 pip install ccxt、放好 .env
+#   3) sudo cp btc-alert.service /etc/systemd/system/btc-alert.service
+#      （把下面的 User / 路徑改成你的）
+#   4) sudo systemctl daemon-reload
+#      sudo systemctl enable --now btc-alert
+#   5) 看 log： journalctl -u btc-alert -f
+
+[Unit]
+Description=BTC volume-spike + range alert (Bybit perp -> Telegram)
+# 等網路就緒再啟動，避免開機時還沒連上網就先失敗
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 用一個非 root 的一般帳號跑（請先建好，或改成你的帳號）
+User=btc
+WorkingDirectory=/home/btc/btc-alert
+# 用 venv 裡的 python 跑 alert.py；.env 由程式自己讀（跟 alert.py 同目錄即可，不必在這裡指定）
+ExecStart=/home/btc/btc-alert/venv/bin/python /home/btc/btc-alert/alert.py
+# 任何原因退出都自動重啟（程式本身已會自癒，這層是「真的崩了」的最後保險）
+Restart=always
+RestartSec=5
+# 讓 print 不被緩衝，log 才會即時進 journald
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
