@@ -55,7 +55,7 @@ STATUS_LOG_EVERY_SEC = 60
 # HEALTHCHECK_URL（放 .env）ping 一次。心跳一停（被回收/崩潰/網路死），對方會主動通知你。
 # healthchecks.io 上把該 check 的 period 設成略大於這個值、grace 給寬一點（如 10 分鐘），
 # 才不會被短暫斷線/重連誤報。沒填 HEALTHCHECK_URL 就完全停用此功能。
-HEARTBEAT_EVERY_SEC = 60
+HEARTBEAT_EVERY_SEC = 300
 
 # Telegram 設定：放在同目錄的 .env 檔，不寫死在程式碼裡（見檔尾說明如何取得）。
 #   .env 內容範例：

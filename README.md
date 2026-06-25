@@ -211,7 +211,7 @@ systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 
 | `WATCHDOG_TIMEOUT` | `60` | 多久沒資料就判定殭屍連線重連 |
 | `RECONNECT_DELAY` | `2` | 重連前等待秒數 |
 | `STATUS_LOG_EVERY_SEC` | `60` | 非 TTY（導到檔案）時狀態行印出間隔 |
-| `HEARTBEAT_EVERY_SEC` | `60` | 每隔多久對 healthchecks.io ping 一次 |
+| `HEARTBEAT_EVERY_SEC` | `300` | 每隔多久對 healthchecks.io ping 一次（5 分鐘） |
 
 Telegram 的 token / chat id、healthchecks.io 的 `HEALTHCHECK_URL` 都從 `.env` 讀（環境變數可覆蓋）。
 

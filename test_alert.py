@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 測試程式：餵假的 K 棒資料進 alert.py 真正的判斷/發送路徑（handle_candles），
-驗證「兩條件成立 -> 真的發 Telegram 警報」以及「5 分鐘冷卻不洗版」。
+驗證「兩條件成立 -> 真的發 Telegram 警報」以及「5 分鐘冷卻不洗版」，
+並順手對 healthchecks.io ping 一次，確認存活監控路徑也通。
 
 跑法：
     source venv/bin/activate
@@ -55,6 +56,14 @@ async def main():
     state2["cur_ts"] = ts
     small_range = make_candle(ts, low=61000.0, high=61061.0, close=61050.0, volume=300.0)
     await alert.handle_candles([small_range], state2)
+
+    # 順手對 healthchecks.io ping 一次，確認存活監控路徑也通（你的 check 會變綠）
+    if alert.HEALTHCHECK_URL:
+        alert.log("→ 對 healthchecks.io ping 一次（確認存活監控）")
+        await alert.healthcheck_ping()
+        alert.log("   已 ping，去 healthchecks.io 看那個 check 是否收到/變綠")
+    else:
+        alert.log("→ 未設定 HEALTHCHECK_URL，略過存活監控 ping")
 
     alert.log("=" * 60)
     alert.log("測試結束：你的手機應該只收到 1 則 🚨 警報（第 1 次那筆）。")
