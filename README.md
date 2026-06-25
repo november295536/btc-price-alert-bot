@@ -123,16 +123,36 @@ python test_alert.py
 ## 在 Ubuntu/VPS 上長期跑（systemd）
 
 `Ctrl+C` 或關終端機程式就會停，長期跑請用 systemd（開機自啟、崩潰自動重啟、SSH 斷線照跑）。
-專案內附 `btc-alert.service` 範本，把裡面的 `User` 和三處路徑改成你的實際值，然後：
+
+### 方法 A：一鍵腳本（推薦）
+
+clone 下來後，用**一般帳號**（不要 sudo 整支）執行：
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+它會自動：裝 `python3-venv` → 建 venv、裝依賴 → 檢查 `.env`（沒填會提示你填好再重跑）→
+產生並安裝 systemd 服務（路徑/帳號自動填好）→ 啟用並啟動。可重複執行（更新後再跑一次即可）。
+
+### 方法 B：手動
+
+用專案內的 `btc-alert.service` 範本，把 `User` 和三處路徑改成你的實際值，然後：
 
 ```bash
 sudo cp btc-alert.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now btc-alert     # 開機自啟 + 立刻啟動
+sudo systemctl enable --now btc-alert
+```
 
+### 常用指令
+
+```bash
 journalctl -u btc-alert -f                # 即時看 log
 sudo systemctl restart btc-alert          # 改設定後重啟
 sudo systemctl status btc-alert           # 看運行狀態
+sudo systemctl stop btc-alert             # 停止
 ```
 
 systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 秒寫一行進 journald，不洗爆硬碟）。
@@ -148,7 +168,8 @@ systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 
 | `alert.py` | 主程式（設定區在最上方） |
 | `test_alert.py` | 測試程式：餵假資料驗證觸發/冷卻/發送 |
 | `requirements.txt` | 依賴清單（鎖定 ccxt 版本）；`pip install -r requirements.txt` |
-| `btc-alert.service` | VPS 用的 systemd 服務檔範本（開機自啟、崩潰自重啟） |
+| `deploy.sh` | Ubuntu 一鍵部署腳本（裝環境 + 起 systemd 服務） |
+| `btc-alert.service` | systemd 服務檔範本（手動部署用；`deploy.sh` 會自動產生對應版本） |
 | `.env` | Telegram token 與 chat id（**不要 commit**，已被 `.gitignore` 排除） |
 | `.gitignore` | 排除 `.env` / `venv/` |
 | `venv/` | 虛擬環境 |
