@@ -184,6 +184,62 @@ systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 
 
 ---
 
+## VPS 安全加固（開公網 IP 的機器建議做）
+
+核心觀念：這支只對外連線、**不需要任何 inbound，唯一要開的門就是 SSH(22)**。
+所以「安全」＝把那扇門縮到最小、鎖好；別再開其他 port。
+
+### 1. 鎖 SSH 來源 IP（最重要，OCI Security List）
+
+先在機器上看自己家的公網 IP：
+
+```bash
+echo $SSH_CONNECTION | awk '{print $1}'
+```
+
+然後 Console → VCN → 該 subnet 的 **Security List → Ingress Rules**，把 22 那條的
+`Source` 從 `0.0.0.0/0` 改成 `你家IP/32`。其餘 inbound 全刪（OCI 預設沒允許就拒絕）。
+
+| 做法 | 安全性 | 風險 |
+|------|--------|------|
+| 22 只開給你家 IP `/32` | 最高 | 家裡 IP 浮動時可能把自己鎖在外（可用 OCI Console / Cloud Shell 改回來）|
+| 22 對全世界開、只靠金鑰登入 | 夠用 | 幾乎沒有（金鑰登入暴力破解無解），只是 log 有掃描噪音 |
+
+> IP 固定 → 鎖 `/32`；IP 會變 → 維持開放但務必只用金鑰登入 + 裝 fail2ban。
+
+### 2. SSH 只准金鑰、禁密碼與 root
+
+```bash
+# 確認設定（看到 PasswordAuthentication no 就對了）
+sudo grep -Ei 'passwordauth|permitrootlogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/* 2>/dev/null
+# 若是 yes 才需改成 no，然後：
+sudo systemctl restart ssh
+```
+
+### 3. fail2ban（自動封鎖狂試登入的 IP）
+
+```bash
+sudo apt update && sudo apt install -y fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+### 4. 自動安全更新
+
+```bash
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades   # 問你時選 Yes
+```
+
+### 5. 其他
+
+- **不要為這支 bot 開任何其他 inbound port**（我們用 healthchecks.io 推送式心跳就是為了不開 port）。
+- bot 用**非 root 帳號**跑（`deploy.sh` 已處理）、`.env` 設 `chmod 600`（已處理）。
+- ⭐ **去 Oracle 帳號開 MFA**：Console 帳號被盜的話什麼防火牆都繞過，比 VM 本身更該保護。
+
+> 最小組合：①（IP 固定就）鎖 22 給你家 IP ② 確認金鑰登入 + fail2ban ③ Oracle 帳號開 MFA。
+
+---
+
 ## 檔案說明
 
 | 檔案 | 用途 |
