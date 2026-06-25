@@ -47,6 +47,8 @@ pip install -r requirements.txt
 cat > .env <<'EOF'
 TELEGRAM_BOT_TOKEN=你的token
 TELEGRAM_CHAT_ID=你的chatid
+# 選填：存活監控（見下方「怎麼知道程式還活著」），不需要可整行刪掉
+HEALTHCHECK_URL=https://hc-ping.com/你的-uuid
 EOF
 chmod 600 .env        # 鎖權限，只有自己讀得到
 ```
@@ -120,6 +122,27 @@ python test_alert.py
 
 ---
 
+## 怎麼知道程式還活著（存活監控 / 死人開關）
+
+危險盲點：這支「沒爆量就不發訊息」，所以它**默默死掉**（被雲端回收、當機、整台 VPS 掛）時，
+你不會注意到——沉默看起來跟「行情平靜」一模一樣。解法是用 **healthchecks.io** 當死人開關：
+程式**主動往外** ping，一旦心跳停了，healthchecks.io 會**主動通知你**。
+
+設定：
+1. 到 [healthchecks.io](https://healthchecks.io) 免費註冊，建一個 check，拿到 ping URL（形如 `https://hc-ping.com/<uuid>`）。
+2. 把它填進 `.env` 的 `HEALTHCHECK_URL=`。
+3. 在該 check 設定「Period」略大於 `HEARTBEAT_EVERY_SEC`、Grace 給寬一點（如 10 分鐘），避免短暫斷線誤報。
+4. 重啟程式。啟動 log 會顯示「存活監控：已啟用」。
+
+運作方式：程式**在成功收到行情後**才 ping（每 `HEARTBEAT_EVERY_SEC` 秒一次），所以心跳代表
+「真的有在運作」，而不只是「行程沒死」。被回收/當機/網路死 → 心跳停 → healthchecks.io 通知你。
+沒填 `HEALTHCHECK_URL` 就完全停用此功能、不影響其他運作。
+
+> 為什麼推送式（程式往外 ping）而非拉取式（監控戳進來）：這支只對外連線、不開任何 inbound port，
+> 推送式不用動防火牆，且能驗證「程式真的在跑」。
+
+---
+
 ## 在 Ubuntu/VPS 上長期跑（systemd）
 
 `Ctrl+C` 或關終端機程式就會停，長期跑請用 systemd（開機自啟、崩潰自動重啟、SSH 斷線照跑）。
@@ -188,8 +211,9 @@ systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 
 | `WATCHDOG_TIMEOUT` | `60` | 多久沒資料就判定殭屍連線重連 |
 | `RECONNECT_DELAY` | `2` | 重連前等待秒數 |
 | `STATUS_LOG_EVERY_SEC` | `60` | 非 TTY（導到檔案）時狀態行印出間隔 |
+| `HEARTBEAT_EVERY_SEC` | `60` | 每隔多久對 healthchecks.io ping 一次 |
 
-Telegram 的 token / chat id 從 `.env` 讀（環境變數可覆蓋）。
+Telegram 的 token / chat id、healthchecks.io 的 `HEALTHCHECK_URL` 都從 `.env` 讀（環境變數可覆蓋）。
 
 ---
 

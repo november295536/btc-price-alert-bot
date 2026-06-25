@@ -51,6 +51,12 @@ RECONNECT_DELAY = 2
 # 不論哪種模式，觸發/換棒/重連/斷線等「事件」一律即時印成獨立一行。
 STATUS_LOG_EVERY_SEC = 60
 
+# 存活監控（healthchecks.io 死人開關）：每隔這麼多秒，在「成功收到行情」後對
+# HEALTHCHECK_URL（放 .env）ping 一次。心跳一停（被回收/崩潰/網路死），對方會主動通知你。
+# healthchecks.io 上把該 check 的 period 設成略大於這個值、grace 給寬一點（如 10 分鐘），
+# 才不會被短暫斷線/重連誤報。沒填 HEALTHCHECK_URL 就完全停用此功能。
+HEARTBEAT_EVERY_SEC = 60
+
 # Telegram 設定：放在同目錄的 .env 檔，不寫死在程式碼裡（見檔尾說明如何取得）。
 #   .env 內容範例：
 #     TELEGRAM_BOT_TOKEN=123456789:AAEx.....
@@ -59,6 +65,8 @@ STATUS_LOG_EVERY_SEC = 60
 # （以下實際值在 import 後、由 _load_env() 從 .env 載入，見下方）
 TELEGRAM_BOT_TOKEN = ""
 TELEGRAM_CHAT_ID = ""
+# 存活監控 ping URL（healthchecks.io），放 .env 的 HEALTHCHECK_URL；留空＝停用
+HEALTHCHECK_URL = ""
 
 # =============================================================================
 #  以下為實作，一般不用改
@@ -83,7 +91,7 @@ STOP = False
 def _load_env() -> None:
     """從同目錄的 .env 載入設定（標準庫解析，不需 python-dotenv）。
     已存在的環境變數優先，其次才是 .env；最後寫回模組層的設定變數。"""
-    global TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+    global TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, HEALTHCHECK_URL
     values = {}
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     try:
@@ -99,6 +107,7 @@ def _load_env() -> None:
     # 環境變數優先，其次 .env
     TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", values.get("TELEGRAM_BOT_TOKEN", ""))
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", values.get("TELEGRAM_CHAT_ID", ""))
+    HEALTHCHECK_URL = os.environ.get("HEALTHCHECK_URL", values.get("HEALTHCHECK_URL", ""))
 
 
 _load_env()
@@ -178,6 +187,29 @@ async def telegram_send(text: str) -> bool:
 
 
 # ----------------------------------------------------------------------------
+#  存活監控（healthchecks.io 死人開關）：ping 同樣跑在 executor，不阻塞行情迴圈
+# ----------------------------------------------------------------------------
+def _healthcheck_ping_sync(url: str):
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            resp.read()
+            return True, str(resp.status)
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+async def healthcheck_ping() -> None:
+    """對 HEALTHCHECK_URL 發一次心跳。失敗只記 log、不影響主程式（沒設 URL 就跳過）。"""
+    if not HEALTHCHECK_URL:
+        return
+    loop = asyncio.get_running_loop()
+    ok, info = await loop.run_in_executor(None, _healthcheck_ping_sync, HEALTHCHECK_URL)
+    if not ok:
+        # 心跳失敗通常代表網路問題（此時行情多半也收不到）；bot 本身仍在跑
+        log(f"⚠️ healthchecks.io 心跳發送失敗：{info}")
+
+
+# ----------------------------------------------------------------------------
 #  狀態（全部放記憶體，程式重啟就重來）
 # ----------------------------------------------------------------------------
 def new_state() -> dict:
@@ -187,6 +219,7 @@ def new_state() -> dict:
         "cur_vol": 0.0,         # 目前「形成中」棒最後一次觀測到的累積量
         "last_trigger": 0.0,    # 上次發警報的時間（time.monotonic()），給冷卻用
         "last_data_ts": 0.0,    # 上次收到行情更新的時間，給 watchdog 觀察用
+        "last_heartbeat": 0.0,  # 上次對 healthchecks.io ping 的時間
     }
 
 
@@ -311,8 +344,15 @@ async def run_forever() -> None:
                     )
                     break  # 跳出內層 -> 重連 + 重新 seed
 
-                state["last_data_ts"] = time.monotonic()
+                now = time.monotonic()
+                state["last_data_ts"] = now
                 await handle_candles(candles, state)
+
+                # 存活心跳：成功收到行情後（節流）對 healthchecks.io ping 一次。
+                # 放在「收到資料」之後，所以 ping 代表的是「真的有在運作」而非只是行程沒死。
+                if HEALTHCHECK_URL and (now - state["last_heartbeat"]) >= HEARTBEAT_EVERY_SEC:
+                    state["last_heartbeat"] = now
+                    await healthcheck_ping()
 
         except Exception as e:
             # 任何連線 / 串流錯誤（含斷線 1006 等）都在這裡接住，不讓整支程式死掉
@@ -354,6 +394,10 @@ async def main() -> None:
         f"設定：{SYMBOL} {TIMEFRAME} | 爆量≥{VOL_MULT:.1f}x | "
         f"振幅≥{RANGE_THRESHOLD * 100:.2f}% | 冷卻{COOLDOWN_SEC}s | watchdog {WATCHDOG_TIMEOUT}s"
     )
+    if HEALTHCHECK_URL:
+        log(f"存活監控：已啟用，每 {HEARTBEAT_EVERY_SEC}s ping healthchecks.io")
+    else:
+        log("存活監控：未設定 HEALTHCHECK_URL（停用）")
     log("=" * 60)
 
     # 啟動測試訊息：讓你立刻確認 token / chat id 設定正確，不用等真訊號

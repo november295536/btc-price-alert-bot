@@ -43,6 +43,7 @@
   - `status()`＝每秒行情；TTY 用 `\r\033[2K` 原地刷新不洗版，非 TTY 節流成每 `STATUS_LOG_EVERY_SEC` 秒一行。
   - 改 log 時注意維持 `_status_active` 機制：事件印出前要先清掉原地刷新的狀態行。
 - **優雅退出**：用 `signal.signal` 設 `STOP` 旗標讓迴圈自然收尾（不靠拋 `CancelledError`），這樣 `await exchange.close()` 能乾淨執行。
+- **存活監控（healthchecks.io 死人開關）**：`HEALTHCHECK_URL`（.env，選填）。`healthcheck_ping()` 跑在 executor、失敗只記 log 不影響主程式。**ping 刻意放在「成功收到行情並 handle 完」之後**（每 `HEARTBEAT_EVERY_SEC` 節流），所以心跳代表「真的在運作」而非僅「行程沒死」。改動時別把 ping 移到資料接收前，否則殭屍/斷線狀態也會誤報為健康。
 
 ## 已實測確認的 ccxt 事實（4.5.x，不要憑記憶推翻）
 

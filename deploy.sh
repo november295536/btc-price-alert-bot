@@ -43,9 +43,10 @@ echo "==> 2/5 建立 venv 並安裝依賴"
 # --- 3) 檢查 .env（沒有就建空白範本並中止，請填好再重跑）---
 echo "==> 3/5 檢查 .env"
 if [ ! -f .env ]; then
-  printf 'TELEGRAM_BOT_TOKEN=\nTELEGRAM_CHAT_ID=\n' > .env
+  printf 'TELEGRAM_BOT_TOKEN=\nTELEGRAM_CHAT_ID=\n# 選填：healthchecks.io 存活監控 ping URL（不需要可留空）\nHEALTHCHECK_URL=\n' > .env
   chmod 600 .env
   echo "✗ 已建立空白 .env，請填入 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 後重跑 ./deploy.sh"
+  echo "  （HEALTHCHECK_URL 為選填，要存活監控再填）"
   exit 1
 fi
 chmod 600 .env
