@@ -182,6 +182,25 @@ systemd 跑時輸出不是終端機 → 程式自動切成節流模式（每 60 
 
 > ⚠️ 機房地區：Bybit 對部分地區（如美國）封鎖、Telegram 在少數國家被擋。建議選日本/新加坡/香港等機房，開好後先手動 `python alert.py` 確認收得到啟動訊息。
 
+### 更新既有部署（改完程式後）
+
+在本機 commit + push 到 GitHub 後，SSH 進 server：
+
+```bash
+cd ~/btc-price-alert-bot          # 你 clone 的專案目錄（路徑不同就改掉）
+git pull                          # 拉最新程式
+sudo systemctl restart btc-alert  # 重啟套用新版
+journalctl -u btc-alert -f        # 確認起來了（會看到啟動訊息與行情）
+```
+
+重點：
+
+- **只改程式（沒動 `requirements.txt`）→ `git pull` + `restart` 就夠**，不必重跑 `deploy.sh`。
+- **改了依賴**（`requirements.txt`）→ 改跑 `./deploy.sh`，它會順便更新 venv 依賴、重產服務檔再重啟。
+- **`.env` 不受影響**：它沒進版控，`git pull` 不會覆蓋 server 上的 token。
+- server 重啟後會**發一則「✅ 已啟動」測試訊息**到手機，收到就代表新版跑起來了。
+- 萬一 `git pull` 因 server 上有雜散改動卡住：`git stash` 或 `git checkout -- .` 清掉再 pull。
+
 ---
 
 ## VPS 安全加固（開公網 IP 的機器建議做）

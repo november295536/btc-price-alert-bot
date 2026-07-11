@@ -304,8 +304,8 @@ async def handle_candles(candles, state: dict) -> None:
         else:
             emoji, move = "⚪", "+0.00% (0)"
         text = (
-            # 第一行＝手機通知一眼看到的摘要：方向/變動(含價差)、現價、爆量倍數、振幅，單空格分隔
-            f"{emoji} BTC {move} {close} {vol_ratio:.2f}x 振幅{range_pct * 100:.2f}%\n"
+            # 第一行＝手機通知一眼看到的摘要：方向/變動(含價差)、現價、爆量倍數、振幅，欄位用 | 分隔
+            f"{emoji} BTC {move}|{close}|{vol_ratio:.2f}x|振幅{range_pct * 100:.2f}%\n"
             f"商品：{SYMBOL}（{TIMEFRAME}）\n"
             f"時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"K 棒開盤：{fmt_ts(ts)}\n"
