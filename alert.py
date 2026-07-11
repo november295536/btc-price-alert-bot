@@ -292,8 +292,20 @@ async def handle_candles(candles, state: dict) -> None:
     # --- 兩條件同時成立、且不在冷卻中才觸發（棒中即時觸發，不等收盤）---
     if both and not cooling:
         state["last_trigger"] = now
+        # 這根形成中棒的漲跌：以現價 close 對開盤 o 判斷（除零保護）。
+        # 注意 close 是「形成中棒的當下最新價」而非收盤價，故 close-o 即這根到目前為止的漲跌。
+        chg_pct = ((close - o) / o * 100) if o > 0 else 0.0
+        diff = close - o  # 現價與開盤的絕對價差（帶正負號）
+        # 方向已由 🟢/🔴 + 數字正負號雙重表達，不再寫「上漲/下跌」字；下跌時 chg_pct/diff 本身帶負號
+        if close > o:
+            emoji, move = "🟢", f"+{chg_pct:.2f}% (+{diff:.1f})"
+        elif close < o:
+            emoji, move = "🔴", f"{chg_pct:.2f}% ({diff:.1f})"
+        else:
+            emoji, move = "⚪", "+0.00% (0)"
         text = (
-            "🚨 BTC 爆量 + 振幅警報\n"
+            # 第一行＝手機通知一眼看到的摘要：方向/變動(含價差)、現價、爆量倍數、振幅，單空格分隔
+            f"{emoji} BTC {move} {close} {vol_ratio:.2f}x 振幅{range_pct * 100:.2f}%\n"
             f"商品：{SYMBOL}（{TIMEFRAME}）\n"
             f"時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"K 棒開盤：{fmt_ts(ts)}\n"
