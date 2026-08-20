@@ -9,11 +9,12 @@
      （形成中量 ≥ 上一根已收完棒的 N 倍）且「振幅」（(high-low)/low ≥ 門檻）同時
      成立時**棒內即發**。行為與訊息與舊版單一 BTC 警報完全一致（迴歸鎖定）。
 
-  2. ema_breakout（EMA20 突破・兩根K嚴格版 strict2）——只用**已收盤**K 棒判定：
-     前一棒實體上穿 EMA（open[-1] < ema[-1] 且 close[-1] > ema[-1]）且本棒整根含影
-     線站上 EMA（low > ema）→ 多；空方鏡像。語義逐行對照 quantitive-trading 專案
-     `ema_breakout/ml/mode_scan.py` 的 `_signal_masks` strict2 分支（ground truth），
-     不自創變體。附「靜默突破」判定（本訊號棒振幅在該品種×該框架歷史訊號棒振幅
+  2. ema_breakout（EMA20 突破・兩根K嚴格版 strict2＋同向站穩）——只用**已收盤**K 棒
+     判定：前一棒實體上穿 EMA（open[-1] < ema[-1] 且 close[-1] > ema[-1]）、本棒整根
+     含影線站上 EMA（low > ema）、**且本棒收盤與訊號同向（多=陽線、空=陰線）**→ 多；
+     空方鏡像。基底語義逐行對照 quantitive-trading 專案 `ema_breakout/ml/mode_scan.py`
+     的 `_signal_masks` strict2 分支；「同向站穩」是使用者 2026-08-21 指定的加嚴條件
+     （Pine 原版嚴格版不看方向；回測研究對拍時記得把此條件關掉或對齊）。附「靜默突破」判定（本訊號棒振幅在該品種×該框架歷史訊號棒振幅
      分佈中的分位 < quiet_pctile → 是）。
 
 只讀公開行情、不下單，因此不需要任何 Bybit API key。
@@ -344,8 +345,12 @@ def ema_series(closes, ema_len: int):
 
 
 def strict2_scan(opens, highs, lows, closes, emas, gate: int = STRICT2_GATE):
-    """批次 strict2 偵測：回傳 [(idx, side)]（side ∈ {'long','short'}）。
-    逐行對照 mode_scan `_signal_masks` 的 strict2 分支 + 收尾 gate。"""
+    """批次 strict2＋同向站穩 偵測：回傳 [(idx, side)]（side ∈ {'long','short'}）。
+
+    基底＝mode_scan `_signal_masks` 的 strict2 分支 + 收尾 gate；
+    加嚴（使用者 2026-08-21 指定，偏離 Pine 原版「不看方向」）：
+    站穩棒必須與訊號同向——多方 close>open（陽線）、空方 close<open（陰線）。
+    （穿越棒在 strict2 定義下必然同向：實體穿越 ⇒ 多方 close>open。）"""
     n = len(closes)
     out = []
     for i in range(2, n):
@@ -353,9 +358,10 @@ def strict2_scan(opens, highs, lows, closes, emas, gate: int = STRICT2_GATE):
             continue
         po, pc, pe = opens[i - 1], closes[i - 1], emas[i - 1]
         e_i = emas[i]
-        if (po < pe) and (pc > pe) and (lows[i] > e_i):
+        o_i, c_i = opens[i], closes[i]
+        if (po < pe) and (pc > pe) and (lows[i] > e_i) and (c_i > o_i):
             out.append((i, "long"))
-        elif (po > pe) and (pc < pe) and (highs[i] < e_i):
+        elif (po > pe) and (pc < pe) and (highs[i] < e_i) and (c_i < o_i):
             out.append((i, "short"))
     return out
 
@@ -410,8 +416,15 @@ class Strict2Detector:
 
         sig = None
         if idx >= self.gate - 1 and self.prev_o is not None:
-            is_long = (self.prev_o < prev_ema) and (self.prev_c > prev_ema) and (l > cur_ema)
-            is_short = (self.prev_o > prev_ema) and (self.prev_c < prev_ema) and (h < cur_ema)
+            # 同向站穩（使用者 2026-08-21 指定，偏離 Pine 原版）：站穩棒 close 須與訊號同向
+            is_long = (
+                (self.prev_o < prev_ema) and (self.prev_c > prev_ema)
+                and (l > cur_ema) and (c > o)
+            )
+            is_short = (
+                (self.prev_o > prev_ema) and (self.prev_c < prev_ema)
+                and (h < cur_ema) and (c < o)
+            )
             if is_long or is_short:
                 side = "long" if is_long else "short"
                 amp = amplitude(h, l)

@@ -11,10 +11,12 @@
 - **volume_spike（放量突破）**：某商品某週期「形成中」棒**爆量**（≥ 上一根已收完棒的 N 倍）且**振幅**
   （`(high-low)/low` ≥ 門檻）同時成立 → **棒內即發**。走 `ccxt.pro watch_ohlcv` 串流。行為/訊息與舊版
   單一 BTC 警報 **byte-identical**（迴歸鎖定，見 `test_alert.py`）。
-- **ema_breakout（EMA20 突破・strict2）**：只用**已收盤**棒——前一棒實體上穿 EMA 且本棒整根含影線站上
-  EMA → 多；空方鏡像。走 **REST 輪詢**（只吃已收盤棒，天然容忍股票永續安靜時段：無新棒＝正常，不誤判
-  殭屍）。附「靜默突破」分位判定。語義逐行對照 quantitive-trading 專案 `ema_breakout/ml/mode_scan.py`
-  的 `_signal_masks` strict2 分支（ground truth），已對拍 100% 一致。
+- **ema_breakout（EMA20 突破・strict2＋同向站穩）**：只用**已收盤**棒——前一棒實體上穿 EMA、本棒整根
+  含影線站上 EMA、**且本棒收盤與訊號同向（多=陽線、空=陰線）**→ 多；空方鏡像。走 **REST 輪詢**（只吃
+  已收盤棒，天然容忍股票永續安靜時段：無新棒＝正常，不誤判殭屍）。附「靜默突破」分位判定。基底語義
+  逐行對照 quantitive-trading 專案 `ema_breakout/ml/mode_scan.py` 的 `_signal_masks` strict2 分支
+  （曾對拍 100% 一致）；「同向站穩」是使用者 2026-08-21 指定的加嚴（Pine 原版不看方向、研究側也未加
+  ——與 mode_scan 對拍時記得對齊此條件，訊號數約為原版的 70%）。
 
 使用者（peter）的目的：在自己筆電的 terminal 直接跑，盯多個品種的短線訊號。
 

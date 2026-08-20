@@ -142,6 +142,22 @@ def test_strict2_detection():
     assert bars_v[ci_v][3] < emas[ci_v], "此變體確認棒 low 應在 ema 下（違反 strict2）"
     assert _detect(bars_v) == [], "確認棒影線跌破 EMA 不應觸發"
 
+    # --- 同向站穩違反（2026-08-21 加嚴）：確認棒整根在 EMA 上但收陰 → 不觸發多方 ---
+    bars_d, ci_d = _build_long_scenario(low_confirm=100.5)
+    o_d = bars_d[ci_d][1]
+    bars_d[ci_d][4] = o_d - 0.05  # close < open（陰線），但 low=100.5 仍在 EMA 上
+    closes_d = [b[4] for b in bars_d]
+    emas_d = alert.ema_series(closes_d, 20)
+    assert bars_d[ci_d][3] > emas_d[ci_d], "此變體確認棒 low 仍應 > ema（只違反方向）"
+    assert _detect(bars_d) == [], "確認棒收陰（與多方訊號反向）不應觸發"
+    # 空方鏡像：確認棒整根在 EMA 下但收陽 → 不觸發空方
+    sbars_d, sci_d = _build_short_scenario(high_confirm=99.5)
+    sbars_d[sci_d][4] = sbars_d[sci_d][1] + 0.05  # close > open（陽線）
+    scloses_d = [b[4] for b in sbars_d]
+    semas_d = alert.ema_series(scloses_d, 20)
+    assert sbars_d[sci_d][2] < semas_d[sci_d], "此變體確認棒 high 仍應 < ema（只違反方向）"
+    assert _detect(sbars_d) == [], "確認棒收陽（與空方訊號反向）不應觸發"
+
     # --- 空方鏡像 ---
     sbars, sci = _build_short_scenario(high_confirm=99.5)
     scloses = [b[4] for b in sbars]
