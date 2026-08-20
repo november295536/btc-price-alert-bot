@@ -1,27 +1,58 @@
-# BTC 爆量 + 振幅 即時警報
+# 多警報 即時監看（放量突破 + EMA20 突破）
 
-監看 Bybit 的 **BTC USDT 本位線性永續合約**，當「**爆量**」且「**振幅夠大**」同時成立時，
-立刻發 Telegram 訊息通知你。只讀公開行情、**不下單**，所以不需要任何 Bybit API key。
+監看 Bybit 的 **USDT 本位線性永續合約**，用一份**設定驅動的警報清單**（`alert.py` 最上方的
+`ALERTS`）同時跑多種、多品種、多週期的警報，命中就立刻發 Telegram 通知。只讀公開行情、
+**不下單**，所以不需要任何 Bybit API key。
+
+目前內建兩種警報：
+
+- **放量突破（volume_spike）**：某商品某週期「形成中」K 棒**爆量**（形成中量 ≥ 上一根已收完棒的 N 倍）
+  且**振幅**（`(high-low)/low` ≥ 門檻）同時成立時，**棒內即發**（不等收盤）。行為與訊息與舊版
+  單一 BTC 警報完全一致。
+- **EMA20 突破（ema_breakout・兩根K嚴格版 strict2）**：只用**已收盤**K 棒判定——前一棒實體上穿 EMA
+  且本棒整根（含影線）站上 EMA → 多；空方鏡像。附「靜默突破」判定。預設監看 BTC、ETH、HYPE、
+  TSLA、SPCX、SKHYNIX、MU、SNDK 的 15m 與 1h。
 
 - 單一檔案 `alert.py`，`python alert.py` 直接跑
-- 行情串流用 `ccxt.pro`（內含在 `ccxt` 套件裡）
+- 行情：volume_spike 走 `ccxt.pro` 串流（棒內即時）；ema_breakout 走 REST 輪詢（只吃已收盤棒，
+  天然容忍股票永續的安靜時段——無新棒＝正常，不是故障）
 - 通知用 Telegram Bot API（標準庫 `urllib`，不需 `requests`）
+- 每則警報獨立狀態（冷卻 / K 棒追蹤 / warmup / EMA / 振幅分佈），互不干擾；單一品種斷流/停盤
+  不影響其他警報
 - 狀態全放記憶體，沒有資料庫、沒有 Docker。程式死掉重啟就好（內建斷線自癒）
+- 已發警報會追加一行到 `logs/alerts.jsonl`（gitignored；日誌失敗不影響發送）
 
 ---
 
 ## 訊號規格
 
+### 放量突破（volume_spike）
+
 | 項目 | 值 |
 |------|----|
 | 商品 | `BTC/USDT:USDT`（Bybit 線性永續） |
 | 時間框架 | 15 分鐘 K 棒 |
-| 觸發條件①（爆量） | 形成中那根 15m 棒的累積量 ≥ 上一根已收完棒完整量的 **2 倍** |
+| 觸發條件①（爆量） | 形成中那根棒的累積量 ≥ 上一根已收完棒完整量的 **2 倍** |
 | 觸發條件②（振幅） | `(high − low) / low` ≥ **0.5%** |
 | 觸發時機 | **兩條件同時成立就發，不等收盤**（棒內量與振幅都是單調遞增，棒中判斷合理） |
 | 防洗版 | 觸發後 **5 分鐘冷卻**，期間不重發 |
 
-門檻都能在 `alert.py` 最上方的「設定區」改。
+### EMA20 突破（ema_breakout・strict2）
+
+| 項目 | 值 |
+|------|----|
+| 商品 | BTC / ETH / HYPE / TSLA / SPCX / SKHYNIX / MU / SNDK 的 `X/USDT:USDT` |
+| 時間框架 | 15m 與 1h（各一則） |
+| EMA | 20（遞迴，seed 於啟動時 REST 拉的歷史，盡量拉滿一年、分頁抓；新上市品種拉到上市日） |
+| 多方條件 | 前一棒實體上穿 EMA（`open[-1] < ema[-1]` 且 `close[-1] > ema[-1]`）且本棒整根含影線在 EMA 上（`low > ema`） |
+| 空方條件 | 鏡像：`open[-1] > ema[-1]` 且 `close[-1] < ema[-1]` 且 `high < ema` |
+| 觸發時機 | **只用已收盤棒**，每棒收盤判定一次；同一棒只發一次（以棒開盤時戳去重） |
+| 靜默突破 | 本訊號棒振幅在「該品種×該框架歷史訊號棒振幅分佈」的分位 < 20 → 靜默（歷史訊號 < 30 顯示「資料不足」） |
+
+> strict2 語義逐行對照 quantitive-trading 專案 `ema_breakout/ml/mode_scan.py` 的 `_signal_masks`
+> strict2 分支（ground truth）；偵測器已與其在真實 Bybit kline 上對拍 **100% 一致**。
+
+門檻與清單都在 `alert.py` 最上方的「設定區」（`ALERTS` 與各常數）改。
 
 ---
 
@@ -83,16 +114,25 @@ python alert.py
 
 ---
 
-## 測試「會不會跳通知」
+## 測試
 
-不用等真盤爆量，直接跑測試程式，它會用假資料走 `alert.py` **真正的**判斷+發送路徑：
+直接跑測試程式，它會用假資料走 `alert.py` **真正的**判斷/發送路徑：
 
 ```bash
 source venv/bin/activate
 python test_alert.py
 ```
 
-預期：手機收到 **1 則 🚨 警報**（第 1 筆）；第 2 筆被冷卻擋下、第 3 筆因振幅不足不發。
+涵蓋：
+
+- **volume_spike**：兩條件成立 → 發、5 分鐘冷卻不重發、振幅不足不觸發，且訊息文字與舊版
+  **byte-identical**（迴歸鎖定）。
+- **strict2 EMA 突破**：多 / 空 / 影線違反不觸發 / 串流==批次一致。
+- **靜默突破分位**：`percentile_rank` 與「是 / 否 / 資料不足」三態。
+- **ema_breakout 訊息格式**：使用者逐字核准的格式（多 / 空 / 靜默 / 資料不足）。
+
+純邏輯測試不需 `.env`、不連網、一定會跑並斷言；最後一段若 `.env` 有設 token/chat id，會對
+Telegram 真的發一則 🚨 warning 讓你確認手機跳通知，沒設就自動略過（測試仍全綠）。
 
 ---
 
@@ -269,24 +309,49 @@ sudo dpkg-reconfigure -plow unattended-upgrades   # 問你時選 Yes
 | `deploy.sh` | Ubuntu 一鍵部署腳本（裝環境 + 起 systemd 服務） |
 | `btc-alert.service` | systemd 服務檔範本（手動部署用；`deploy.sh` 會自動產生對應版本） |
 | `.env` | Telegram token 與 chat id（**不要 commit**，已被 `.gitignore` 排除） |
-| `.gitignore` | 排除 `.env` / `venv/` |
+| `.gitignore` | 排除 `.env` / `venv/` / `logs/` |
+| `logs/alerts.jsonl` | 已發警報的 JSONL 日誌（runtime，gitignored） |
 | `venv/` | 虛擬環境 |
 
 ---
 
 ## 設定區（`alert.py` 最上方）
 
+### 警報清單 `ALERTS`
+
+一份 list，每個 dict 是一則警報。`type` 決定偵測器，其餘欄位是該警報的參數：
+
+```python
+ALERTS = [
+    {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
+     "vol_mult": 2.0, "range_pct": 0.5, "cooldown_sec": 300},
+    {"type": "ema_breakout", "symbol": "BTC/USDT:USDT", "timeframe": "1h",
+     "ema_len": 20, "quiet_pctile": 20},
+    # ... 其餘品種 × {15m, 1h}
+]
+```
+
+- `volume_spike`：`vol_mult`（爆量倍數）、`range_pct`（振幅門檻，**百分比**，0.5 = 0.5%）、`cooldown_sec`。
+- `ema_breakout`：`ema_len`（預設 20）、`quiet_pctile`（靜默突破分位門檻，預設 20）。
+- 同一 `(symbol, timeframe)` 的多則警報會共用一條資料流；每則警報狀態獨立、互不干擾。
+- 啟動時會 `load_markets` 驗證清單裡每個 symbol 可解析，並列出解析失敗者。
+- `SKHY/USDT:USDT` 與 `SKHYNIX/USDT:USDT` 疑似重複（兩者在 Bybit 皆可解析），預設把 `SKHY` 那兩則
+  **註解掉**，留給你確認。
+
+### 全域常數
+
 | 變數 | 預設 | 意義 |
 |------|------|------|
-| `SYMBOL` | `BTC/USDT:USDT` | 監看商品 |
-| `TIMEFRAME` | `15m` | K 棒週期 |
-| `VOL_MULT` | `2.0` | 爆量倍數門檻 |
-| `RANGE_THRESHOLD` | `0.005` | 振幅門檻（0.5%） |
-| `COOLDOWN_SEC` | `300` | 冷卻秒數（5 分鐘） |
-| `WATCHDOG_TIMEOUT` | `60` | 多久沒資料就判定殭屍連線重連 |
+| `SYMBOL` / `TIMEFRAME` / `VOL_MULT` / `RANGE_THRESHOLD` / `COOLDOWN_SEC` | BTC/15m/2.0/0.005/300 | 舊版單一 volume 警報的相容預設（`handle_candles` 用；不影響 `ALERTS`） |
+| `EMA_LEN_DEFAULT` | `20` | EMA 週期預設 |
+| `EMA_QUIET_PCTILE_DEFAULT` | `20` | 靜默突破分位門檻（振幅分位 < 此值 → 靜默） |
+| `EMA_MIN_SIGNALS_FOR_QUIET` | `30` | 歷史訊號 < 此數 → 顯示「資料不足」、不硬判 |
+| `EMA_SEED_DAYS` | `365` | 啟動時 seed 歷史天數（分頁抓；新上市品種自動拉到上市日） |
+| `EMA_POLL_SEC` | `15` | ema_breakout 輪詢間隔（已收棒偵測延遲 ≤ 此值） |
+| `WATCHDOG_TIMEOUT` | `60` | volume 串流多久沒資料就 REST 探測是否殭屍（安靜市場會被容忍、不誤判） |
 | `RECONNECT_DELAY` | `2` | 重連前等待秒數 |
 | `STATUS_LOG_EVERY_SEC` | `60` | 非 TTY（導到檔案）時狀態行印出間隔 |
-| `HEARTBEAT_EVERY_SEC` | `300` | 每隔多久對 healthchecks.io ping 一次（5 分鐘） |
+| `HEARTBEAT_EVERY_SEC` | `300` | 每隔多久對 healthchecks.io ping 一次（需最近有任一資料流仍在吐資料） |
 
 Telegram 的 token / chat id、healthchecks.io 的 `HEALTHCHECK_URL` 都從 `.env` 讀（環境變數可覆蓋）。
 
