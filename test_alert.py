@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 測試程式：餵假的 K 棒資料進 alert.py 真正的判斷/發送路徑，驗證：
-  1. volume_spike：兩條件成立 → 發 Telegram 警報；5 分鐘冷卻不重發；振幅不足不觸發，
-     且訊息文字與舊版 byte-identical（迴歸鎖定）。
+  1. volume_spike：爆量＋漲跌幅（|close-open|/open）成立 → 發 Telegram 警報；
+     冷卻不重發；同一根 K 棒只發一次（冷卻過了也不重發）；漲跌幅不足不觸發
+     ——包含「爆量、high-low 振幅大、但收回開盤價」的假突破（2026-08-23 修正的主案例）；
+     訊息文字逐行鎖定。
   2. ema_breakout strict2：多/空偵測、影線違反不觸發、串流==批次一致。
   3. 靜默突破分位：percentile_rank 與「是/否/資料不足」三態判定。
 
@@ -31,9 +33,11 @@ def _ohlc(ts, o, h, l, c, v=1.0):
 
 
 # ----------------------------------------------------------------------------
-#  1. volume_spike：訊息 byte-identical + 觸發/冷卻/不誤觸（不需 telegram）
+#  1. volume_spike：訊息鎖定 + 觸發/冷卻/同棒去重/假突破不誤觸（不需 telegram）
 # ----------------------------------------------------------------------------
 async def test_volume_message_and_trigger():
+    import time as _time
+
     ts = 1_700_000_000_000
     sent = []
 
@@ -47,7 +51,7 @@ async def test_volume_message_and_trigger():
     alert.telegram_send = capture
     alert._append_alert_log = lambda rec: None  # 測試時不落地 JSONL
     try:
-        # 情境1：兩條件成立 → 應發 1 則
+        # 情境1：爆量 + 漲跌幅成立 → 應發 1 則（open=61000, close=61480 → +0.787%）
         state = alert.new_state()
         state["baseline_vol"] = 100.0
         state["cur_ts"] = ts
@@ -55,17 +59,39 @@ async def test_volume_message_and_trigger():
         await alert.handle_candles([trigger], state)
         assert len(sent) == 1, f"應發 1 則，實際 {len(sent)}"
 
-        # 情境2：同一波再餵 → 冷卻擋下、不重發
+        # 情境2：同一波再餵 → 冷卻 + 同棒去重擋下、不重發
         await alert.handle_candles([trigger], state)
         assert len(sent) == 1, "冷卻期間不應重發"
 
-        # 情境3：量爆但振幅不足 → 不觸發
+        # 情境3：冷卻過了、但還是同一根 K 棒 → 仍不重發（同棒只發一次）
+        #（重現 2026-08-23 的實際案例：15m 棒內冷卻 5 分鐘到期後又發了一次同樣內容）
+        state["last_trigger"] = _time.monotonic() - alert.COOLDOWN_SEC - 60
+        await alert.handle_candles([trigger], state)
+        assert len(sent) == 1, "同一根 K 棒冷卻過後也不應重發"
+
+        # 情境4：換棒後條件再成立 → 應再發（去重只限同一根棒）
+        ts2 = ts + 900_000
+        trigger2 = make_candle(ts2, low=61000.0, high=61800.0, close=61600.0, volume=600.0)
+        await alert.handle_candles([trigger2], state)  # baseline 換成上一根量 250 → 2.4x
+        assert len(sent) == 2, f"換棒後條件成立應再發，實際 {len(sent)}"
+
+        # 情境5：量爆但漲跌幅不足 → 不觸發
         state2 = alert.new_state()
         state2["baseline_vol"] = 100.0
         state2["cur_ts"] = ts
         small = make_candle(ts, low=61000.0, high=61061.0, close=61050.0, volume=300.0)
         await alert.handle_candles([small], state2)
-        assert len(sent) == 1, "振幅不足不應觸發"
+        assert len(sent) == 2, "漲跌幅不足不應觸發"
+
+        # 情境6（2026-08-23 修正的主案例）：爆量、high-low 振幅超過門檻、
+        # 但價格掃一圈收回開盤價附近 → 不觸發（舊的振幅語義會誤發）
+        state3 = alert.new_state()
+        state3["baseline_vol"] = 100.0
+        state3["cur_ts"] = ts
+        fake = _ohlc(ts, 61000.0, 61300.0, 60800.0, 61010.0, 300.0)  # 振幅0.82%、漲跌幅+0.016%
+        assert (fake[2] - fake[3]) / fake[3] >= alert.RANGE_THRESHOLD, "自我檢查：此棒振幅應超過門檻"
+        await alert.handle_candles([fake], state3)
+        assert len(sent) == 2, "假突破（收回開盤價）不應觸發"
 
         # 訊息文字逐行鎖定（時間行因含牆鐘時間而排除；K棒開盤行用 fmt_ts 保持時區無關）
         lines = sent[0].split("\n")
@@ -77,7 +103,8 @@ async def test_volume_message_and_trigger():
             "現價：61480.0",
             "爆量：2.50x（門檻 2.0x）",
             "  當前量 250.000 BTC / 上一根 100.000 BTC",
-            "振幅：0.820%（門檻 0.50%）",
+            "漲跌幅：+0.787%（門檻 ±0.50%）",
+            "振幅：0.820%",
             "  high 61500.0 / low 61000.0",
         ]
         assert len(lines) == len(expected), f"訊息行數不符：{len(lines)} vs {len(expected)}"
@@ -86,7 +113,7 @@ async def test_volume_message_and_trigger():
                 assert got.startswith("時間："), f"第3行應為時間行：{got!r}"
             else:
                 assert got == exp, f"訊息行不符：\n  got: {got!r}\n  exp: {exp!r}"
-        alert.log("✅ volume_spike：訊息 byte-identical + 觸發/冷卻/不誤觸 全部通過")
+        alert.log("✅ volume_spike：訊息鎖定 + 觸發/冷卻/同棒去重/假突破不誤觸 全部通過")
     finally:
         alert.telegram_send = orig_send
         alert._append_alert_log = orig_log

@@ -7,8 +7,8 @@
 目前內建兩種警報：
 
 - **放量突破（volume_spike）**：某商品某週期「形成中」K 棒**爆量**（形成中量 ≥ 上一根已收完棒的 N 倍）
-  且**振幅**（`(high-low)/low` ≥ 門檻）同時成立時，**棒內即發**（不等收盤）。行為與訊息與舊版
-  單一 BTC 警報完全一致。
+  且**漲跌幅**（`|close-open|/open` ≥ 門檻，即現價相對本棒開盤的實際變動）同時成立時，
+  **棒內即發**（不等收盤）；**同一根 K 棒只發一次**。
 - **EMA20 突破（ema_breakout・兩根K嚴格版 strict2）**：只用**已收盤**K 棒判定——前一棒實體上穿 EMA
   且本棒整根（含影線）站上 EMA → 多；空方鏡像。附「靜默突破」判定。預設監看 BTC、ETH、HYPE、
   TSLA、SPCX、SKHYNIX、MU、SNDK 的 15m 與 1h。
@@ -33,9 +33,9 @@
 | 商品 | `BTC/USDT:USDT`（Bybit 線性永續） |
 | 時間框架 | 15 分鐘 K 棒 |
 | 觸發條件①（爆量） | 形成中那根棒的累積量 ≥ 上一根已收完棒完整量的 **2 倍** |
-| 觸發條件②（振幅） | `(high − low) / low` ≥ **0.5%** |
-| 觸發時機 | **兩條件同時成立就發，不等收盤**（棒內量與振幅都是單調遞增，棒中判斷合理） |
-| 防洗版 | 觸發後 **5 分鐘冷卻**，期間不重發 |
+| 觸發條件②（漲跌幅） | `\|close − open\| / open` ≥ **0.5%**（現價相對本棒開盤的實際變動，非 high-low 振幅——上下掃一圈又收回開盤價的棒不算） |
+| 觸發時機 | **兩條件同時成立就發，不等收盤** |
+| 防洗版 | **同一根 K 棒只發一次**（以棒開盤時戳去重）；另有觸發後 **5 分鐘冷卻** 擋跨棒連發 |
 
 ### EMA20 突破（ema_breakout・strict2）
 
@@ -105,12 +105,13 @@ python alert.py
 
 - **互動式終端機**：底部一行行情狀態「原地刷新」（每秒更新但**不洗版**），像這樣：
   ```
-  [13:59:00] K[13:45] price=61591.1 vol=407.012 baseline=536.166 vol_ratio=0.76x range_pct=0.278%
+  [13:59:00] K[13:45] price=61591.1 vol=407.012 baseline=536.166 vol_ratio=0.76x move_pct=+0.278%
   ```
 - **重要事件**才會印成獨立一行留著：🌱 seed、🕒 換棒、🚨 觸發、🔄 重連、⚠️ 斷線、🐶 watchdog。
 - **輸出導到檔案時**（`nohup` / `> log.txt`）：自動改成每 60 秒印一行（可在設定區 `STATUS_LOG_EVERY_SEC` 調）。
 
-欄位意義：`vol_ratio` ≥ 2.0 算爆量；`range_pct` ≥ 0.5% 算振幅夠；兩者同時成立 → 🚨 + Telegram。
+欄位意義：`vol_ratio` ≥ 2.0 算爆量；`move_pct`（現價相對本棒開盤的漲跌幅）絕對值 ≥ 0.5% 算動得夠；
+兩者同時成立 → 🚨 + Telegram（同一根 K 棒只發一次）。
 
 ---
 
@@ -125,8 +126,8 @@ python test_alert.py
 
 涵蓋：
 
-- **volume_spike**：兩條件成立 → 發、5 分鐘冷卻不重發、振幅不足不觸發，且訊息文字與舊版
-  **byte-identical**（迴歸鎖定）。
+- **volume_spike**：兩條件成立 → 發、冷卻不重發、**同一根 K 棒只發一次**（冷卻過了也不重發）、
+  漲跌幅不足不觸發——包含「爆量、high-low 振幅大、但收回開盤價」的假突破，且訊息文字逐行鎖定。
 - **strict2 EMA 突破**：多 / 空 / 影線違反不觸發 / 串流==批次一致。
 - **靜默突破分位**：`percentile_rank` 與「是 / 否 / 資料不足」三態。
 - **ema_breakout 訊息格式**：使用者逐字核准的格式（多 / 空 / 靜默 / 資料不足）。
@@ -324,14 +325,15 @@ sudo dpkg-reconfigure -plow unattended-upgrades   # 問你時選 Yes
 ```python
 ALERTS = [
     {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
-     "vol_mult": 2.0, "range_pct": 0.5, "cooldown_sec": 300},
+     "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
     {"type": "ema_breakout", "symbol": "BTC/USDT:USDT", "timeframe": "1h",
      "ema_len": 20, "quiet_pctile": 20},
     # ... 其餘品種 × {15m, 1h}
 ]
 ```
 
-- `volume_spike`：`vol_mult`（爆量倍數）、`range_pct`（振幅門檻，**百分比**，0.5 = 0.5%）、`cooldown_sec`。
+- `volume_spike`：`vol_mult`（爆量倍數）、`move_pct`（漲跌幅門檻 `|close-open|/open`，**百分比**，
+  0.5 = 0.5%；舊 key 名 `range_pct` 仍接受）、`cooldown_sec`。
 - `ema_breakout`：`ema_len`（預設 20）、`quiet_pctile`（靜默突破分位門檻，預設 20）。
 - 同一 `(symbol, timeframe)` 的多則警報會共用一條資料流；每則警報狀態獨立、互不干擾。
 - 啟動時會 `load_markets` 驗證清單裡每個 symbol 可解析，並列出解析失敗者。

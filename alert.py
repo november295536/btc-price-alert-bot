@@ -6,8 +6,10 @@
 設定驅動的警報清單（見下方 ALERTS）。目前支援兩種警報：
 
   1. volume_spike（放量突破）——監看某商品某週期的「形成中」K 棒，當「爆量」
-     （形成中量 ≥ 上一根已收完棒的 N 倍）且「振幅」（(high-low)/low ≥ 門檻）同時
-     成立時**棒內即發**。行為與訊息與舊版單一 BTC 警報完全一致（迴歸鎖定）。
+     （形成中量 ≥ 上一根已收完棒的 N 倍）且「漲跌幅」（|close-open|/open ≥ 門檻）
+     同時成立時**棒內即發**；同一根 K 棒只發一次。
+     （2026-08-23 語義修正：門檻從 high-low 振幅改成實際漲跌幅——上下掃一圈又收回
+     開盤價的棒不再觸發；訊息裡的「振幅」降為參考資訊。）
 
   2. ema_breakout（EMA20 突破・兩根K嚴格版 strict2＋同向站穩）——只用**已收盤**K 棒
      判定：前一棒實體上穿 EMA（open[-1] < ema[-1] 且 close[-1] > ema[-1]）、本棒整根
@@ -49,19 +51,21 @@ SYMBOL = "BTC/USDT:USDT"
 TIMEFRAME = "15m"
 # 爆量倍數門檻：當前「形成中」棒的累積量 ≥ 上一根「已收完」棒完整量的幾倍
 VOL_MULT = 2.0
-# 振幅門檻：(high - low) / low ≥ 多少（0.005 = 0.5%）
+# 漲跌幅門檻：|close - open| / open ≥ 多少（0.005 = 0.5%）。
+# 注意：量的是「現價相對 K 棒開盤的實際漲跌」，不是 high-low 振幅——
+# 上下掃了一圈又收回開盤價的棒不算（2026-08-23 修正，名稱保留給舊測試相容）。
 RANGE_THRESHOLD = 0.005
 # 冷卻秒數：觸發後幾秒內不再發，避免同一波洗版（300 = 5 分鐘）
 COOLDOWN_SEC = 300
 
 # --- 警報清單（設定驅動）。type 決定用哪種偵測器，其餘欄位是該警報的參數。 ---
-#   volume_spike: symbol, timeframe, vol_mult, range_pct(百分比，0.5=0.5%), cooldown_sec
+#   volume_spike: symbol, timeframe, vol_mult, move_pct(漲跌幅門檻，百分比，0.5=0.5%), cooldown_sec
 #   ema_breakout: symbol, timeframe, ema_len(預設20), quiet_pctile(預設20)
 # 每則警報獨立狀態、互不干擾。同一 (symbol,timeframe) 的多則警報共用一條資料流。
 ALERTS = [
-    # 既有放量突破——參數照舊、行為零改變（迴歸驗收）
+    # 放量突破：爆量 ≥2x 且 |漲跌幅| ≥0.5%（棒內即發、同棒只發一次）
     {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
-     "vol_mult": 2.0, "range_pct": 0.5, "cooldown_sec": 300},
+     "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
 
     # EMA 突破（兩根K嚴格版 strict2）×（品種 × {15m, 1h}）
     {"type": "ema_breakout", "symbol": "BTC/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
@@ -522,7 +526,8 @@ def _ema_log_record(cfg: dict, sig: dict, now: datetime) -> dict:
 
 
 def _volume_text(cfg, ts, o, high, low, close, vol, baseline, vol_ratio, range_pct, now: datetime = None) -> str:
-    """組 volume_spike 的 Telegram 訊息（與舊版單一 BTC 警報逐字一致：預設 cfg 下 byte-identical）。"""
+    """組 volume_spike 的 Telegram 訊息。門檻掛在「漲跌幅」（|close-open|/open）；
+    「振幅」（high-low）降為參考資訊。"""
     now = now or datetime.now()
     base = cfg["base"]
     chg_pct = ((close - o) / o * 100) if o > 0 else 0.0
@@ -541,7 +546,8 @@ def _volume_text(cfg, ts, o, high, low, close, vol, baseline, vol_ratio, range_p
         f"現價：{close}\n"
         f"爆量：{vol_ratio:.2f}x（門檻 {cfg['vol_mult']:.1f}x）\n"
         f"  當前量 {vol:.3f} {base} / 上一根 {baseline:.3f} {base}\n"
-        f"振幅：{range_pct * 100:.3f}%（門檻 {cfg['range_threshold'] * 100:.2f}%）\n"
+        f"漲跌幅：{chg_pct:+.3f}%（門檻 ±{cfg['move_threshold'] * 100:.2f}%）\n"
+        f"振幅：{range_pct * 100:.3f}%\n"
         f"  high {high} / low {low}"
     )
 
@@ -555,6 +561,7 @@ def _volume_log_record(cfg, ts, o, close, range_pct, now: datetime) -> dict:
         "timeframe": cfg["timeframe"],
         "side": side,
         "close": close,
+        "move_pct": ((close - o) / o) if o > 0 else 0.0,
         "amplitude": range_pct,
         "amp_pctile": None,
         "quiet": None,
@@ -571,6 +578,7 @@ def new_state() -> dict:
         "cur_ts": None,         # 目前「形成中」棒的開盤 timestamp（毫秒）
         "cur_vol": 0.0,         # 目前「形成中」棒最後一次觀測到的累積量
         "last_trigger": 0.0,    # 上次發警報的時間（time.monotonic()），給冷卻用
+        "last_trigger_bar_ts": None,  # 上次發警報的 K 棒開盤時戳，同棒只發一次
         "last_data_ts": 0.0,    # 上次收到行情更新的時間，給 watchdog 觀察用
         "last_heartbeat": 0.0,  # 上次對 healthchecks.io ping 的時間
     }
@@ -584,7 +592,7 @@ def _default_volume_cfg() -> dict:
         "timeframe": TIMEFRAME,
         "base": SYMBOL.split("/")[0],
         "vol_mult": VOL_MULT,
-        "range_threshold": RANGE_THRESHOLD,
+        "move_threshold": RANGE_THRESHOLD,
         "cooldown_sec": COOLDOWN_SEC,
     }
 
@@ -608,8 +616,8 @@ async def seed_baseline(exchange, state: dict) -> None:
 
 
 async def _volume_process(candles, state: dict, cfg: dict, console_prefix: str = "") -> None:
-    """volume_spike 核心：計算 vol_ratio / range_pct、印狀態、判斷觸發並發訊 + 記 JSONL。
-    console_prefix="" 時 log/status 與舊版 byte-identical（handle_candles 用）。"""
+    """volume_spike 核心：計算 vol_ratio / move_pct（門檻）/ range_pct（參考）、印狀態、
+    判斷觸發（同棒只發一次 + 冷卻）並發訊 + 記 JSONL。"""
     if not candles:
         return
     ts, o, high, low, close, vol = candles[-1][:6]
@@ -628,34 +636,40 @@ async def _volume_process(candles, state: dict, cfg: dict, console_prefix: str =
     baseline = state["baseline_vol"]
     vol_ratio = (vol / baseline) if (baseline and baseline > 0) else float("inf")
     range_pct = ((high - low) / low) if low > 0 else 0.0
+    # 門檻量「實際漲跌幅」（現價 vs 本棒開盤），不是 high-low 振幅——
+    # 掃上掃下又收回原點的棒不觸發（2026-08-23 修正）。
+    move_pct = ((close - o) / o) if o > 0 else 0.0
 
-    both = vol_ratio >= cfg["vol_mult"] and range_pct >= cfg["range_threshold"]
+    both = vol_ratio >= cfg["vol_mult"] and abs(move_pct) >= cfg["move_threshold"]
     now = time.monotonic()
     elapsed = now - state["last_trigger"]
     cooling = state["last_trigger"] > 0 and elapsed < cfg["cooldown_sec"]
+    fired_this_bar = state.get("last_trigger_bar_ts") == ts
 
     flag = ""
-    if both and cooling:
+    if both and fired_this_bar:
+        flag = "  [✅ 本棒已發]"
+    elif both and cooling:
         flag = f"  [⏳ 冷卻中 {cfg['cooldown_sec'] - elapsed:.0f}s]"
     elif both:
         flag = "  [⚡ 條件成立]"
     status(
         f"{console_prefix}K[{fmt_ts(ts)}] price={close} vol={vol:.3f} baseline={baseline:.3f} "
-        f"vol_ratio={vol_ratio:.2f}x range_pct={range_pct * 100:.3f}%{flag}"
+        f"vol_ratio={vol_ratio:.2f}x move_pct={move_pct * 100:+.3f}%{flag}"
     )
 
-    if both and not cooling:
+    if both and not cooling and not fired_this_bar:
         state["last_trigger"] = now
+        state["last_trigger_bar_ts"] = ts
         now_dt = datetime.now()
         text = _volume_text(cfg, ts, o, high, low, close, vol, baseline, vol_ratio, range_pct, now=now_dt)
-        log(f"🚨 {console_prefix}觸發警報！vol_ratio={vol_ratio:.2f}x range_pct={range_pct * 100:.3f}%")
+        log(f"🚨 {console_prefix}觸發警報！vol_ratio={vol_ratio:.2f}x move_pct={move_pct * 100:+.3f}%")
         await telegram_send(text)
         _append_alert_log(_volume_log_record(cfg, ts, o, close, range_pct, now_dt))
 
 
 async def handle_candles(candles, state: dict) -> None:
-    """（相容舊版 test_alert.py 的入口）以「目前全域設定」當預設 volume 警報處理。
-    行為與訊息與舊版單一 BTC 警報逐字一致。"""
+    """（相容舊版 test_alert.py 的入口）以「目前全域設定」當預設 volume 警報處理。"""
     await _volume_process(candles, state, _default_volume_cfg(), console_prefix="")
 
 
@@ -753,8 +767,10 @@ def _parse_alert_cfg(raw: dict) -> dict:
     }
     if typ == "volume_spike":
         cfg["vol_mult"] = float(raw.get("vol_mult", VOL_MULT))
-        # ALERTS 用「百分比」表示振幅門檻（0.5 = 0.5%）；內部一律用比例（0.005）
-        cfg["range_threshold"] = float(raw.get("range_pct", RANGE_THRESHOLD * 100)) / 100.0
+        # ALERTS 用「百分比」表示漲跌幅門檻（0.5 = 0.5%）；內部一律用比例（0.005）。
+        # 舊 key 名 range_pct 仍接受（相容）。
+        cfg["move_threshold"] = float(
+            raw.get("move_pct", raw.get("range_pct", RANGE_THRESHOLD * 100))) / 100.0
         cfg["cooldown_sec"] = float(raw.get("cooldown_sec", COOLDOWN_SEC))
     elif typ == "ema_breakout":
         cfg["ema_len"] = int(raw.get("ema_len", EMA_LEN_DEFAULT))
@@ -1045,7 +1061,8 @@ async def main() -> None:
     for a in ALERTS:
         if a["type"] == "volume_spike":
             log(f"  · 放量突破  {a['symbol']} {a['timeframe']}  "
-                f"爆量≥{a.get('vol_mult', VOL_MULT):.1f}x 振幅≥{a.get('range_pct', RANGE_THRESHOLD * 100):.2f}%")
+                f"爆量≥{a.get('vol_mult', VOL_MULT):.1f}x "
+                f"漲跌幅≥{a.get('move_pct', a.get('range_pct', RANGE_THRESHOLD * 100)):.2f}%")
         else:
             log(f"  · EMA突破   {a['symbol']} {a['timeframe']}  "
                 f"EMA{a.get('ema_len', EMA_LEN_DEFAULT)} 靜默<P{a.get('quiet_pctile', EMA_QUIET_PCTILE_DEFAULT)}")
