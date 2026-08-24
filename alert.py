@@ -67,6 +67,8 @@ ALERTS = [
     # 放量突破：爆量 ≥2x 且 |漲跌幅| ≥0.5%（棒內即發、同棒只發一次）
     # {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
     #  "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
+    {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "1h",
+     "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
 
     # EMA 突破（兩根K嚴格版 strict2）×（品種 × {15m, 1h}）
     # {"type": "ema_breakout", "symbol": "BTC/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
