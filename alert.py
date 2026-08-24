@@ -63,29 +63,30 @@ COOLDOWN_SEC = 300
 #   ema_breakout: symbol, timeframe, ema_len(預設20), quiet_pctile(預設20)
 # 每則警報獨立狀態、互不干擾。同一 (symbol,timeframe) 的多則警報共用一條資料流。
 ALERTS = [
+    # 15m 全部停用（2026-08-24 使用者反映訊號太多）；要恢復把下面對應行解除註解即可。
     # 放量突破：爆量 ≥2x 且 |漲跌幅| ≥0.5%（棒內即發、同棒只發一次）
-    {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
-     "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
+    # {"type": "volume_spike", "symbol": "BTC/USDT:USDT", "timeframe": "15m",
+    #  "vol_mult": 2.0, "move_pct": 0.5, "cooldown_sec": 300},
 
     # EMA 突破（兩根K嚴格版 strict2）×（品種 × {15m, 1h}）
-    {"type": "ema_breakout", "symbol": "BTC/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "BTC/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "BTC/USDT:USDT",     "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "ETH/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "ETH/USDT:USDT",     "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "ETH/USDT:USDT",     "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "HYPE/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "HYPE/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "HYPE/USDT:USDT",    "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "TSLA/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "TSLA/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "TSLA/USDT:USDT",    "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "SPCX/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "SPCX/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "SPCX/USDT:USDT",    "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "SKHYNIX/USDT:USDT", "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "SKHYNIX/USDT:USDT", "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "SKHYNIX/USDT:USDT", "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "MU/USDT:USDT",      "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "MU/USDT:USDT",      "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "MU/USDT:USDT",      "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
-    {"type": "ema_breakout", "symbol": "SNDK/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "SNDK/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "SNDK/USDT:USDT",    "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
     # SKHY 與 SKHYNIX 是 Bybit 上兩個不同合約（使用者確認兩個都要，2026-08-21）。
-    {"type": "ema_breakout", "symbol": "SKHY/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
+    # {"type": "ema_breakout", "symbol": "SKHY/USDT:USDT",    "timeframe": "15m", "ema_len": 20, "quiet_pctile": 20},
     {"type": "ema_breakout", "symbol": "SKHY/USDT:USDT",    "timeframe": "1h",  "ema_len": 20, "quiet_pctile": 20},
 ]
 
